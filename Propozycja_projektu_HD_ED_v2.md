@@ -26,13 +26,12 @@ Pacjenci obu baz nie pokrywają się, więc integracja nie polega na łączeniu 
 
 ### Pytania analityczne
 
-Pytania od 1 do 4 wymagają danych z obu systemów. Ograniczamy się do pobytów na OIOM (w MIMIC wybieramy je z tabeli `icustays`), bo eICU zawiera tylko takie pobyty i inaczej porównanie byłoby nierzetelne.
+Każde pytanie wymaga danych z obu systemów jednocześnie, bo korzysta z miar i wymiarów, które powstają dopiero po ich połączeniu w hurtowni. Ograniczamy się do pobytów na OIOM (w MIMIC wybieramy je z tabeli `icustays`), bo eICU zawiera tylko takie pobyty i inaczej porównanie byłoby nierzetelne.
 
-1. Czy odsetek pacjentów z cukrzycą wśród pobytów na OIOM różni się między regionami USA?
-2. Jak często cukrzyca współwystępuje z nadciśnieniem i czy w obu systemach jest to podobnie często?
-3. Czy śmiertelność szpitalna pacjentów z cukrzycą różni się od śmiertelności pozostałych, osobno dla każdego systemu i regionu?
-4. Czy pacjenci z cukrzycą i nadciśnieniem leżą na OIOM dłużej niż pozostali?
-5. Jaki odsetek pacjentów z cukrzycą ma wynik HbA1c poniżej 7%? To pytanie dotyczy wyłącznie MIMIC (eICU nie zawiera wyników HbA1c), a w demo mamy 20 takich pacjentów, więc traktujemy je jako demonstrację działania miary.
+1. Czy odsetek pacjentów z cukrzycą wśród pobytów na OIOM w szpitalu z MIMIC (Boston) mieści się w zakresie odsetków obserwowanych w regionach USA według eICU? Źródła: diagnozy i pobyty z MIMIC oraz diagnozy i region szpitala z eICU.
+2. Jak często cukrzyca współwystępuje z nadciśnieniem i czy w obu systemach jest to podobnie często? Źródła: kody ICD z MIMIC i z eICU po sprowadzeniu do wspólnych grup chorób.
+3. Czy śmiertelność szpitalna pacjentów z cukrzycą różni się od śmiertelności pozostałych, osobno dla każdego systemu? Źródła: `hospital_expire_flag` z MIMIC i `hospitaldischargestatus` z eICU, a w eICU dodatkowo w podziale na regiony.
+4. Czy pacjenci z cukrzycą i nadciśnieniem leżą na OIOM dłużej niż pozostali? Źródła: długość pobytu z `icustays` (MIMIC) i z `unitdischargeoffset` (eICU).
 
 ### Model wielowymiarowy
 
@@ -42,7 +41,6 @@ Dla każdego źródła budujemy osobny schemat gwiazdy, a gwiazdy łączymy wsp�
 |---|---|---|---|
 | Przyjęcie (MIMIC) | jedno przyjęcie do szpitala | liczba przyjęć, czas pobytu w dniach, zgon (0/1), liczba rozpoznań | Czas, Pacjent, Diagnoza, Placówka |
 | Pobyt OIOM (eICU) | jeden pobyt na oddziale | liczba pobytów, czas pobytu w dniach, zgon (0/1) | Czas, Pacjent, Diagnoza, Placówka |
-| Pomiar HbA1c (MIMIC) | jeden wynik badania | wartość HbA1c w procentach, wynik poniżej 7% (0/1) | Czas, Pacjent, Placówka |
 
 Atrybuty i hierarchie wymiarów wspólnych:
 

@@ -6,9 +6,9 @@ Dokument pomocniczy, nie do oddania. Wyjaśnia pojęcia użyte w propozycji i zb
 
 Najłatwiej zrozumieć je na jednym zdaniu: „średni czas pobytu pacjentów z cukrzycą w regionie South”.
 
-Fakt to zdarzenie, które zapisujemy w hurtowni. Jedno zdarzenie to jeden wiersz tabeli faktów. U nas są to przyjęcie do szpitala, pobyt na OIOM i wynik badania HbA1c. W zdaniu powyżej faktem jest pobyt na OIOM.
+Fakt to zdarzenie, które zapisujemy w hurtowni. Jedno zdarzenie to jeden wiersz tabeli faktów. U nas są to przyjęcie do szpitala (MIMIC) i pobyt na OIOM (eICU). W zdaniu powyżej faktem jest pobyt na OIOM.
 
-Miara to liczba zapisana przy fakcie, którą da się sumować albo uśredniać. Tutaj jest to czas pobytu w dniach. Inne nasze miary to zgon (0 lub 1) i wartość HbA1c. Jeśli wartość można sensownie zsumować lub uśrednić, jest miarą.
+Miara to liczba zapisana przy fakcie, którą da się sumować albo uśredniać. Tutaj jest to czas pobytu w dniach. Inna nasza miara to zgon (0 lub 1). Jeśli wartość można sensownie zsumować lub uśrednić, jest miarą.
 
 Wymiar to punkt widzenia, według którego grupujemy fakty: kto, co, gdzie, kiedy. Mamy cztery wymiary: Pacjent, Diagnoza, Placówka i Czas. W zdaniu przykładowym „z cukrzycą” dotyczy wymiaru Diagnoza, a „w regionie South” wymiaru Placówka.
 
@@ -18,7 +18,7 @@ Hierarchia to uporządkowane poziomy w obrębie wymiaru, od najbardziej szczegó
 
 Ziarno to odpowiedź na pytanie, co dokładnie reprezentuje jeden wiersz tabeli faktów. W gwieździe eICU jest to jeden pobyt na oddziale, a w gwieździe MIMIC jedno przyjęcie do szpitala. Prowadzący może zapytać o ziarno przy każdej gwieździe.
 
-Schemat gwiazdy to tabela faktów otoczona tabelami wymiarów, z którymi łączy ją klucz obcy. Mamy trzy gwiazdy: Przyjęcie (MIMIC), Pobyt OIOM (eICU) i Pomiar HbA1c (MIMIC). Gwiazdy mają wspólne wymiary, na przykład Diagnozę i Placówkę. Taki układ nazywa się konstelacją faktów, a wspólne wymiary wymiarami uzgodnionymi. Dzięki nim da się zestawić dane z MIMIC i eICU w jednym zapytaniu.
+Schemat gwiazdy to tabela faktów otoczona tabelami wymiarów, z którymi łączy ją klucz obcy. Mamy dwie gwiazdy: Przyjęcie (MIMIC) i Pobyt OIOM (eICU). Gwiazdy mają wspólne wymiary, na przykład Diagnozę i Placówkę. Taki układ nazywa się konstelacją faktów, a wspólne wymiary wymiarami uzgodnionymi. Dzięki nim da się zestawić dane z MIMIC i eICU w jednym zapytaniu.
 
 Tabela mostkowa jest potrzebna, gdy jeden fakt ma wiele wartości wymiaru. Jedno przyjęcie ma zazwyczaj kilka rozpoznań, więc zamiast jednej kolumny „diagnoza” potrzebna jest tabela łącząca przyjęcia z diagnozami albo osobne flagi (cukrzyca, nadciśnienie).
 
@@ -52,7 +52,7 @@ Najsłabsze miejsce tej decyzji jest takie, że MIMIC-IV i eICU są bazami badaw
 
 Porównujemy tylko pobyty na OIOM. eICU zawiera wyłącznie OIOM, a porównanie z wszystkimi przyjęciami MIMIC zestawiałoby różne populacje, więc w MIMIC bierzemy pobyty z tabeli `icustays`.
 
-Mamy osobną gwiazdę dla każdego źródła, ze wspólnymi wymiarami. Tak prosił prowadzący, a źródła rzeczywiście mają różne ziarno i miary: przyjęcie do szpitala nie jest tym samym co pobyt na oddziale, a HbA1c występuje tylko w MIMIC. Alternatywą była jedna wspólna tabela faktów z kolumną „źródło”. Byłaby prostsza w zapytaniach między systemami, ale zacierałaby różnice w ziarnie.
+Mamy osobną gwiazdę dla każdego źródła, ze wspólnymi wymiarami. Tak prosił prowadzący, a źródła rzeczywiście mają różne ziarno i miary: przyjęcie do szpitala nie jest tym samym co pobyt na oddziale, a w MIMIC są dodatkowe dane o przyjęciach, których nie ma w eICU. Alternatywą była jedna wspólna tabela faktów z kolumną „źródło”. Byłaby prostsza w zapytaniach między systemami, ale zacierałaby różnice w ziarnie.
 
 Wymiar Czas jest względny. W MIMIC daty są przesunięte (lata 2110–2201), a prawdziwy rok znamy tylko jako przedział 2011–2013 albo 2014–2016. W eICU jest przesunięcie w minutach od przyjęcia i rok wypisu (2014 lub 2015). Hierarchia dzień–miesiąc–rok jest więc niemożliwa i nie robimy analizy trendów.
 
@@ -66,7 +66,7 @@ Tabelę napisaliśmy na podstawie struktury klasyfikacji, a nie przepisaliśmy z
 
 W eICU pole `icd9code` zawiera od jednego do siedmiu kodów, najczęściej parę „ICD-9, ICD-10”. Gdy jest jeden kod, może to być każda z wersji, więc wersję rozpoznajemy po kształcie kodu. Kod zaczynający się cyfrą to ICD-9, kod z literą to ICD-10. Wyjątkiem są kody zaczynające się od V i E. Kody V01–V91 traktujemy jako ICD-9 (w ICD-10 litera V oznacza rzadkie przyczyny zewnętrzne), a o kodach z E decyduje położenie kropki: `E870.0` jest ICD-9, a `E87.0` ICD-10. To założenie, które może się mylić w rzadkich przypadkach.
 
-Pytanie o HbA1c zadajemy tylko w MIMIC. Mamy tam 117 pomiarów u 44 pacjentów, a z cukrzycą i wynikiem HbA1c jest 20 osób, więc to jedynie pokaz działania miary, a nie podstawa wniosków.
+Wcześniej mieliśmy piąte pytanie, o odsetek pacjentów z cukrzycą z wynikiem HbA1c poniżej 7%, i osobną gwiazdę z pomiarami HbA1c. Usunęliśmy je po uwadze prowadzącego, że każde pytanie ma korzystać z kilku źródeł, a to dotyczyło tylko MIMIC (eICU nie ma HbA1c w ogóle). Nie było to też pytanie analityczne, tylko opis jednego wskaźnika, a w MIMIC mieliśmy do niego zaledwie 20 pacjentów z cukrzycą. Gwiazda HbA1c nie miała po tej zmianie pytania, któremu by służyła.
 
 ## 5. Decyzje dotyczące eksploracji danych
 
