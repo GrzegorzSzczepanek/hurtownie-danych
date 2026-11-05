@@ -57,6 +57,8 @@ Kilka uwag do modelu. Wymiar Czas jest względny, ponieważ żadne ze źródeł 
 
 Cukrzycę i nadciśnienie definiujemy kodami ICD z mapowaniem między wersjami 9 i 10. Pomiary ciśnienia występują w obu bazach, ale w MIMIC są to zapisy ambulatoryjne (tabela `omr`), a w eICU monitorowanie na OIOM (`vitalAperiodic`, `vitalPeriodic`, z wartościami zerowymi do usunięcia). Ich wartości nie są porównywalne, więc traktujemy je co najwyżej jako dodatkową miarę.
 
+Najwyższy poziom hierarchii diagnozy, czyli rozdział, bierzemy z własnej tabeli `slowniki/rozdzialy_icd.csv`. Słownik dołączony do MIMIC zawiera kody i ich opisy, ale nie ma rozdziałów, a eICU nie ma słownika wcale. Podział na rozdziały w ICD-9 i ICD-10 jest różny (na przykład choroby oczu i uszu są w ICD-10 osobnymi rozdziałami, a w ICD-9 częścią rozdziału o układzie nerwowym), więc zbudowaliśmy wspólną listę dwudziestu rozdziałów, do której przypisujemy zakresy kodów z obu wersji. Tabela opiera się na strukturze klasyfikacji ICD-9-CM i ICD-10-CM i obejmuje wszystkie kody, które występują w naszych danych: 109 775 kodów słownika MIMIC i 42 135 kodów w eICU.
+
 ### Architektura
 
 Bazy MIMIC-IV i eICU stanowią warstwę źródłową. Dane przechodzą przez obszar przejściowy, w którym w Pythonie ujednolicamy kody chorób, nazwy pól i miary, a następnie trafiają do hurtowni relacyjnej w PostgreSQL (ROLAP). Wyniki prezentujemy w tabelach przestawnych w Excelu.
@@ -65,7 +67,7 @@ Bazy MIMIC-IV i eICU stanowią warstwę źródłową. Dane przechodzą przez obs
 
 **Temat.** Przewidywanie ponownej hospitalizacji pacjentów z cukrzycą.
 
-**Zbiór.** UCI Machine Learning Repository, „Diabetes 130-US Hospitals for Years 1999–2008”: 101 766 hospitalizacji, 50 kolumn, licencja CC BY 4.0. Używamy go w części drugiej, a nie w pierwszej, bo MIMIC demo ma tylko 100 pacjentów, co nie wystarcza do uczenia modelu.
+**Zbiór.** UCI Machine Learning Repository, „Diabetes 130-US Hospitals for Years 1999–2008”: 101 766 hospitalizacji, 50 kolumn, licencja CC BY 4.0. Wybraliśmy go z kilku powodów. Dotyczy tej samej choroby co część pierwsza, więc cały projekt ma jeden temat. Zmienna `readmitted` ma od początku trzy wartości, tak jak chce prowadzący, i opisuje rzeczywisty problem kliniczny, czyli ponowną hospitalizację. Zbiór jest wystarczająco duży (101 766 rekordów, 71 518 pacjentów, a najmniejsza klasa `<30` ma ponad 11 tysięcy przykładów) i zawiera wiele cech (wiek, leki, wyniki badań, liczba wcześniejszych wizyt), więc można sensownie porównać kilka modeli. Jest publiczny, a slajdy do przedmiotu wymieniają UCI jako typowe miejsce wyboru danych. Nie użyliśmy w tym celu MIMIC, bo wersja demo ma tylko 100 pacjentów, co nie wystarcza do uczenia modelu.
 
 **Zadanie.** Klasyfikacja nadzorowana na trzy klasy zmiennej `readmitted`: ponowne przyjęcie w ciągu 30 dni (`<30`, 11,2% rekordów), po więcej niż 30 dniach (`>30`, 34,9%) i brak ponownego przyjęcia (`NO`, 53,9%). Wariant dwuklasowy (`<30` kontra pozostałe) przeprowadzimy dodatkowo, żeby porównać wyniki.
 
