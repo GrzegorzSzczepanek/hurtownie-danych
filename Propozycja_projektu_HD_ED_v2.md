@@ -1,126 +1,82 @@
-# Propozycja projektu – Hurtownie i eksploracja danych (wersja 2)
+# Propozycja projektu – Hurtownie i eksploracja danych
 
-Iuliia Kapustinskaia, Amelia Sroczyńska, Grzegorz Szczepanek · 05.11.2026
+Iuliia Kapustinskaia, Amelia Sroczyńska, Grzegorz Szczepanek · 5.11.2026
 
-**Zmiany względem wersji z 30.10.2026:** zamiast generatora (Synthea) i zagregowanych wskaźników (CDC PLACES) źródłami są dwa istniejące systemy szpitalne (MIMIC-IV i eICU-CRD). Część ED używa klasyfikacji trójklasowej. Uzasadnienie na końcu.
-
----
+Ta wersja zastępuje propozycję z 30 października. W części pierwszej zmieniliśmy źródła danych, ponieważ generator Synthea i zagregowane wskaźniki CDC nie spełniają wymagania, by źródłem był istniejący system informatyczny. W części drugiej zadanie jest teraz klasyfikacją na trzy klasy, a nie na dwie.
 
 ## Część 1: Hurtownia danych
 
-**Temat:** Hurtownia danych o pacjentach szpitalnych z cukrzycą i nadciśnieniem, zintegrowana z dwóch niezależnych systemów szpitalnych USA.
+**Temat.** Hurtownia danych o pacjentach szpitalnych z cukrzycą i nadciśnieniem, zbudowana z dwóch niezależnych systemów szpitalnych z USA.
 
-### Systemy źródłowe
+### Źródła danych
 
-| | MIMIC-IV (demo 2.2) | eICU-CRD (demo 2.0.1) |
+Korzystamy z dwóch publicznie dostępnych baz szpitalnych w wersjach demonstracyjnych. MIMIC-IV pochodzi ze szpitala Beth Israel Deaconess Medical Center. Jest to relacyjna baza z 26 tabelami, a wersja demo obejmuje 100 pacjentów i 275 przyjęć. eICU-CRD zawiera dane z oddziałów intensywnej terapii (OIOM) w wielu szpitalach. W wersji demo jest to 2520 pobytów 1841 pacjentów w 186 szpitalach. MIMIC-IV udostępnia PhysioNet, a eICU-CRD działa na licencji ODbL 1.0.
+
+Systemy różnią się w sposób, który wymaga uzgadniania danych podczas ETL:
+
+| | MIMIC-IV | eICU-CRD |
 |---|---|---|
-| Co to jest | baza elektronicznej dokumentacji medycznej szpitala Beth Israel Deaconess Medical Center | wielośrodkowa baza oddziałów intensywnej terapii (telemedycyna eICU) |
-| Model | relacyjny, 26 tabel (moduły `hosp` i `icu`) | relacyjny, tabele zdarzeń (`patient`, `diagnosis`, `lab`, `hospital`, …) |
-| Skala demo | 100 pacjentów, 275 przyjęć, ok. 107 tys. wyników badań | 2520 pobytów OIOM, 1841 pacjentów, 186 szpitali |
 | Identyfikatory | `subject_id`, `hadm_id` | `uniquepid`, `patientunitstayid`, `hospitalid` |
-| Kodowanie diagnoz | ICD-9 i ICD-10 (ok. 2200 i 2300 wierszy) | ICD-9 z ICD-10 w jednym polu tekstowym + hierarchia tekstowa `diagnosisstring` |
-| Czas | daty przesunięte; rok tylko jako przedział (`anchor_year_group`: 2011–13, 2014–16) | offsety w minutach od przyjęcia; rok wypisu 2014 lub 2015; godzina doby |
-| Lokalizacja | jeden szpital | `region` (Midwest, South, West, Northeast), `teachingstatus`, `numbedscategory` |
-| Licencja | otwarty dostęp (PhysioNet) | ODbL v1.0 |
+| Diagnozy | kody ICD-9 (2193 wiersze) i ICD-10 (2313) | kody ICD-9 i ICD-10 w jednym polu tekstowym oraz tekstowa hierarchia `diagnosisstring` |
+| Czas | daty przesunięte, rok znany tylko jako przedział (2011–2013 lub 2014–2016) | przesunięcia w minutach od przyjęcia, rok wypisu (2014 lub 2015) |
+| Lokalizacja | jeden szpital | region, status szpitala uczącego i kategoria wielkości |
+| Zgon | `hospital_expire_flag` | `hospitaldischargestatus` |
 
-Wszystkie wymienione liczby policzyliśmy na pobranych plikach.
-
-**Heterogeniczność źródeł** (to ona uzasadnia ETL): różne identyfikatory, różne wersje ICD, różne modele czasu, różne nazwy pól dla tych samych pojęć (zgon: `hospital_expire_flag` vs `hospitaldischargestatus`), brak HbA1c w eICU. Dane z obu systemów nie dotyczą tych samych pacjentów, więc integracja polega na uzgodnieniu wymiarów, a nie na łączeniu rekordów.
-
-Opcjonalny moduł izby przyjęć MIMIC-IV-ED (osobny pakiet) rozważymy, jeśli starczy czasu. Nie sprawdzaliśmy jego zawartości.
+Pacjenci obu baz nie pokrywają się, więc integracja nie polega na łączeniu rekordów tej samej osoby. Polega na sprowadzeniu obu źródeł do wspólnych wymiarów: jednej klasyfikacji chorób, wspólnej definicji pobytu i wspólnego opisu miejsca. Liczby w tej propozycji policzyliśmy na pobranych plikach.
 
 ### Pytania analityczne
 
-Pytania 1–4 wymagają danych z obu systemów jednocześnie. Porównanie jest ograniczone do pobytów na OIOM (w MIMIC: tabela `icustays`), bo eICU zawiera tylko OIOM.
+Pytania od 1 do 4 wymagają danych z obu systemów. Ograniczamy się do pobytów na OIOM (w MIMIC wybieramy je z tabeli `icustays`), bo eICU zawiera tylko takie pobyty i inaczej porównanie byłoby nierzetelne.
 
-1. **Czy udział pacjentów z cukrzycą wśród pobytów na OIOM zależy od regionu USA?**
-   MIMIC: diagnozy ICD (E10–E14, 250) w pobytach z `icustays` · eICU: diagnozy po regionie szpitala
-2. **Jak często cukrzyca współwystępuje z nadciśnieniem i czy jest to podobne w obu systemach?**
-   MIMIC: ICD-10 I10–I16, ICD-9 401–405 · eICU: te same grupy po ujednoliceniu kodów
-3. **Czy śmiertelność szpitalna pacjentów z cukrzycą różni się od pozostałych, w podziale na system i region?**
-   MIMIC: `hospital_expire_flag` · eICU: `hospitaldischargestatus`
-4. **Czy pobyt na OIOM jest dłuższy dla pacjentów z cukrzycą i nadciśnieniem niż dla pozostałych?**
-   MIMIC: długość pobytu w `icustays` · eICU: `unitdischargeoffset`
-5. **(tylko MIMIC, ograniczone liczebnościowo)** Jaki odsetek pacjentów z cukrzycą ma HbA1c poniżej 7%?
-   MIMIC: tabela `labevents` (`itemid` 50852 – „% Hemoglobin A1c”). W demo jest 20 pacjentów z cukrzycą i wynikiem HbA1c, więc traktujemy to jako przykład działania miary, nie jako wniosek statystyczny.
+1. Czy odsetek pacjentów z cukrzycą wśród pobytów na OIOM różni się między regionami USA?
+2. Jak często cukrzyca współwystępuje z nadciśnieniem i czy w obu systemach jest to podobnie często?
+3. Czy śmiertelność szpitalna pacjentów z cukrzycą różni się od śmiertelności pozostałych, osobno dla każdego systemu i regionu?
+4. Czy pacjenci z cukrzycą i nadciśnieniem leżą na OIOM dłużej niż pozostali?
+5. Jaki odsetek pacjentów z cukrzycą ma wynik HbA1c poniżej 7%? To pytanie dotyczy wyłącznie MIMIC (eICU nie zawiera wyników HbA1c), a w demo mamy 20 takich pacjentów, więc traktujemy je jako demonstrację działania miary.
 
 ### Model wielowymiarowy
 
-Dla każdego źródła powstaje osobny schemat gwiazdy. Gwiazdy dzielą wymiary uzgodnione (conformed), co daje konstelację faktów.
+Dla każdego źródła budujemy osobny schemat gwiazdy, a gwiazdy łączymy wspólnymi wymiarami w konstelację faktów.
 
-- **Gwiazda 1: Przyjęcie MIMIC** (ziarno: jedno przyjęcie do szpitala, `hadm_id`)
-- **Gwiazda 2: Pobyt OIOM eICU** (ziarno: jeden pobyt na oddziale, `patientunitstayid`)
-- **Gwiazda 3: Pomiar HbA1c MIMIC** (ziarno: jeden wynik badania)
-
-| Pojęcie | Gwiazda 1 | Gwiazda 2 | Gwiazda 3 |
+| Gwiazda | Fakt i ziarno | Miary | Wymiary |
 |---|---|---|---|
-| **Fakt** | Przyjęcie | Pobyt OIOM | Pomiar HbA1c |
-| **Miary** | liczba przyjęć, czas pobytu (dni), zgon (0/1), liczba rozpoznań | liczba pobytów, czas pobytu na OIOM (dni), zgon (0/1) | wartość HbA1c (%), „w normie” (0/1, < 7%), liczba pomiarów |
-| **Wymiary** | Czas, Pacjent, Diagnoza, Placówka | Czas, Pacjent, Diagnoza, Placówka | Czas, Pacjent, Placówka |
+| Przyjęcie (MIMIC) | jedno przyjęcie do szpitala | liczba przyjęć, czas pobytu w dniach, zgon (0/1), liczba rozpoznań | Czas, Pacjent, Diagnoza, Placówka |
+| Pobyt OIOM (eICU) | jeden pobyt na oddziale | liczba pobytów, czas pobytu w dniach, zgon (0/1) | Czas, Pacjent, Diagnoza, Placówka |
+| Pomiar HbA1c (MIMIC) | jeden wynik badania | wartość HbA1c w procentach, wynik poniżej 7% (0/1) | Czas, Pacjent, Placówka |
 
-**Wymiary uzgodnione i ich atrybuty**
+Atrybuty i hierarchie wymiarów wspólnych:
 
 | Wymiar | Atrybuty | Hierarchia |
 |---|---|---|
-| **Czas** | grupa lat / rok wypisu, dzień pobytu (względny), godzina doby, pora doby | okres (2011–13, 2014–16, 2014, 2015) → rok → dzień pobytu → godzina |
-| **Pacjent** | płeć, wiek, grupa wiekowa, rasa/pochodzenie (jeśli dostępne w obu) | pacjent → grupa wiekowa |
-| **Diagnoza** | kod, wersja klasyfikacji (ICD-9/ICD-10), nazwa, grupa (cukrzyca / nadciśnienie / inne) | kod → grupa → rozdział ICD |
-| **Placówka** | system źródłowy, region, status szpitala uczącego, kategoria wielkości (liczba łóżek), szpital | system → region → szpital |
+| Czas | rok lub przedział lat, dzień pobytu, godzina doby | przedział lat, rok, dzień pobytu, godzina |
+| Pacjent | płeć, wiek, grupa wiekowa | pacjent, grupa wiekowa |
+| Diagnoza | kod, wersja klasyfikacji (ICD-9 lub ICD-10), nazwa, grupa (cukrzyca, nadciśnienie, inne) | kod, grupa, rozdział ICD |
+| Placówka | system źródłowy, region, status szpitala uczącego, kategoria wielkości | system, region, szpital |
 
-Uwagi do modelu:
-- **Czas jest względny**, bo źródła nie podają prawdziwych dat kalendarzowych. Hierarchia dzień → miesiąc → rok nie jest możliwa. Opisujemy to jako cechę źródeł, nie błąd modelu.
-- **Diagnoza** jest w relacji wiele do wielu z faktem (jedno przyjęcie ma wiele rozpoznań). Rozwiązujemy to tabelą mostkową lub flagami cukrzyca/nadciśnienie w wymiarze Pobyt.
-- **Placówka** w eICU ma 18 szpitali bez regionu i część bez liczby łóżek. Przypisujemy im wartość „nieznany”.
-- Poziom „szpital” jest zachowany w modelu, ale **nie służy do porównań**: w eICU demo przypada 10–40 pobytów na szpital (maks. 16 z cukrzycą), więc porównujemy regiony.
+Kilka uwag do modelu. Wymiar Czas jest względny, ponieważ żadne ze źródeł nie podaje prawdziwych dat, więc hierarchia dzień–miesiąc–rok nie jest możliwa i nie analizujemy trendów w czasie. Jedno przyjęcie ma zwykle wiele rozpoznań, dlatego diagnozy podłączamy do faktu tabelą mostkową albo flagami (cukrzyca, nadciśnienie). W eICU 18 szpitali nie ma przypisanego regionu, więc dostają wartość „nieznany”. Poziom szpitala zostaje w hierarchii, ale nie służy do porównań, bo w demo eICU na jeden szpital przypada od 10 do 40 pobytów. Porównujemy regiony.
 
-### Architektura (zgodnie z wykładem)
+Cukrzycę i nadciśnienie definiujemy kodami ICD z mapowaniem między wersjami 9 i 10. Pomiary ciśnienia występują w obu bazach, ale w MIMIC są to zapisy ambulatoryjne (tabela `omr`), a w eICU monitorowanie na OIOM (`vitalAperiodic`, `vitalPeriodic`, z wartościami zerowymi do usunięcia). Ich wartości nie są porównywalne, więc traktujemy je co najwyżej jako dodatkową miarę.
 
-MIMIC-IV + eICU-CRD (warstwa źródłowa OLTP) → ETL w Pythonie z obszarem przejściowym (ekstrakcja, ujednolicenie ICD-9/ICD-10, mapowanie nazw, wyliczenie miar) → hurtownia relacyjna w PostgreSQL (ROLAP, schemat gwiazdy, konstelacja) → wizualizacja w Excelu (tabele przestawne).
+### Architektura
 
----
+Bazy MIMIC-IV i eICU stanowią warstwę źródłową. Dane przechodzą przez obszar przejściowy, w którym w Pythonie ujednolicamy kody chorób, nazwy pól i miary, a następnie trafiają do hurtowni relacyjnej w PostgreSQL (ROLAP). Wyniki prezentujemy w tabelach przestawnych w Excelu.
 
 ## Część 2: Eksploracja danych
 
-**Temat:** Przewidywanie ponownej hospitalizacji pacjentów z cukrzycą.
+**Temat.** Przewidywanie ponownej hospitalizacji pacjentów z cukrzycą.
 
-**Zbiór danych:** UCI Machine Learning Repository, „Diabetes 130-US Hospitals for Years 1999–2008”: 101 766 hospitalizacji, 47 cech, licencja CC BY 4.0.
+**Zbiór.** UCI Machine Learning Repository, „Diabetes 130-US Hospitals for Years 1999–2008”: 101 766 hospitalizacji, 50 kolumn, licencja CC BY 4.0. Używamy go w części drugiej, a nie w pierwszej, bo MIMIC demo ma tylko 100 pacjentów, co nie wystarcza do uczenia modelu.
 
-**Zadanie:** klasyfikacja nadzorowana **trójklasowa**. Zmienna celu `readmitted` ma trzy wartości:
-- `<30` – powrót do szpitala w ciągu 30 dni,
-- `>30` – powrót po więcej niż 30 dniach,
-- `NO` – brak powrotu.
+**Zadanie.** Klasyfikacja nadzorowana na trzy klasy zmiennej `readmitted`: ponowne przyjęcie w ciągu 30 dni (`<30`, 11,2% rekordów), po więcej niż 30 dniach (`>30`, 34,9%) i brak ponownego przyjęcia (`NO`, 53,9%). Wariant dwuklasowy (`<30` kontra pozostałe) przeprowadzimy dodatkowo, żeby porównać wyniki.
 
-Wariant dwuklasowy (`<30` vs reszta) traktujemy jako dodatkowe porównanie, nie jako zadanie podstawowe.
+**Plan eksperymentu.** Ponieważ klasy są niezbalansowane, a klasyfikator zawsze wskazujący `NO` osiąga ok. 54% trafności, główną miarą jest macro-F1, uzupełniona o F1 dla klasy `<30` i macierz pomyłek. Z danych usuwamy pobyty zakończone zgonem lub przekazaniem do hospicjum (kody wypisu 11, 13, 14, 19, 20 i 21; razem 2423 rekordy), ponieważ taki pacjent nie może wrócić do szpitala.
 
-### Plan eksperymentu
+Jeden pacjent ma w zbiorze zwykle kilka pobytów: 16 773 spośród 71 518 pacjentów ma więcej niż jeden, a ich pobyty stanowią 46% rekordów. Dlatego walidację krzyżową dzielimy według `patient_nbr`, tak aby ten sam pacjent nie trafiał jednocześnie do zbioru uczącego i testowego. Porównujemy regresję logistyczną (punkt odniesienia), drzewo decyzyjne, las losowy i gradient boosting. Hiperparametry dobieramy losowym przeszukiwaniem (random search) w przedziałach określonych dla każdego modelu, bo siatka wszystkich kombinacji byłaby zbyt kosztowna. Niezbalansowanie klas uwzględniamy wagami klas. Oversampling stosujemy tylko na zbiorze uczącym, by uniknąć wycieku danych. Przed eksperymentami ustalimy, jaka poprawa macro-F1 względem punktu odniesienia jest dla nas istotna.
 
-| Element | Decyzja | Uzasadnienie |
-|---|---|---|
-| Metryki | macro-F1, F1 dla klasy `<30`, macierz pomyłek, porównanie z klasyfikatorem większościowym | accuracy jest mylące dla danych niezbalansowanych (`NO` 53,9%, `>30` 34,9%, `<30` 11,2%; klasyfikator większościowy ma accuracy ok. 54%) |
-| Walidacja | walidacja krzyżowa grupowana po `patient_nbr` | ten sam pacjent ma w zbiorze wiele pobytów, zwykła walidacja powodowałaby wyciek |
-| Czyszczenie | usunięcie pobytów zakończonych zgonem lub przekazaniem do hospicjum | takie przypadki nie mogą się zakończyć ponowną hospitalizacją (kody `discharge_disposition_id` 11, 13, 14, 19, 20, 21; usuwa to 2423 z 101 766 rekordów) |
-| Modele | regresja logistyczna (punkt odniesienia), drzewo decyzyjne, las losowy, gradient boosting | od prostych do złożonych, zgodnie z wykładem |
-| Hiperparametry | random search w uzasadnionych przedziałach (np. głębokość drzewa, liczba drzew, współczynnik uczenia) | duża liczba kombinacji, grid search byłby zbyt kosztowny |
-| Niezbalansowanie | wagi klas; porównanie z oversamplingiem tylko na zbiorze uczącym | oversampling na całości zbioru powoduje wyciek |
-| „Definition of done” | ustalamy z góry minimalną poprawę macro-F1 względem punktu odniesienia, którą uznajemy za istotną | zgodnie z wykładem o planowaniu eksperymentu |
-| Wnioski | opcjonalnie test statystyczny różnic między modelami | |
+## Uzasadnienie wyboru źródeł
 
----
+Synthea jest generatorem, więc nie spełnia wymogu, by źródłem był istniejący system. CDC PLACES podaje jedną wartość wskaźnika dla całego hrabstwa, czyli dane silnie zagregowane, podczas gdy hurtownia ma przechowywać dane o niskim poziomie agregacji. Poza tym bazy szpitalne są zanonimizowane i nie podają hrabstwa pacjenta, więc nie ma klucza, po którym dałoby się je połączyć z CDC. MIMIC-IV i eICU-CRD są natomiast rzeczywistymi, niezależnymi bazami szpitalnymi z własnymi schematami, identyfikatorami i kodowaniem. Temat (cukrzyca i nadciśnienie) pozostaje taki sam jak w pierwotnej propozycji. Zmienia się punkt odniesienia: zamiast regionalnych wskaźników CDC porównujemy systemy i regiony USA.
 
-## Uzasadnienie decyzji
+## Ograniczenia
 
-| Decyzja | Dlaczego |
-|---|---|
-| Rezygnacja z Synthea | to generator, a nie istniejący system informatyczny |
-| Rezygnacja z CDC PLACES | dane są silnie zagregowane (jedna wartość na hrabstwo), bez danych transakcyjnych. Hurtownia ma stać na danych niezagregowanych. Dodatkowo żadne źródło szpitalne nie podaje hrabstwa pacjenta (dane są zanonimizowane), więc nie ma klucza łączenia |
-| MIMIC-IV + eICU-CRD | rzeczywiste, niezależne systemy szpitalne z własnymi schematami, różnymi identyfikatorami i kodowaniem, co uzasadnia ETL i integrację |
-| Zostajemy przy cukrzycy i nadciśnieniu | zachowujemy temat zgłoszony 30.10. Zmienia się tło porównawcze: zamiast wskaźników hrabstw jest porównanie systemów i regionów |
-| Klasyfikacja trójklasowa | `>30` i `NO` to różne zdarzenia kliniczne, scalenie ich ukrywałoby informację |
-
-## Ograniczenia i punkty do potwierdzenia
-
-1. **Czy zrzut bazy badawczej (MIMIC-IV, eICU) jest akceptowany jako „istniejący system”?** To są bazy zbudowane z systemów szpitalnych, a nie same systemy. Chcemy to potwierdzić z prowadzącym.
-2. **Liczebność:** MIMIC demo ma 35 pacjentów z cukrzycą (20 z wynikiem HbA1c). eICU ma 346 pobytów z cukrzycą, ale brak wyników HbA1c. Porównania regionów obejmują Northeast tylko 14 pobytów z cukrzycą.
-3. **Ciśnienie krwi:** w MIMIC jest w tabeli `omr` (zapisy ambulatoryjne), a w eICU w `vitalAperiodic` (pomiar nieinwazyjny na OIOM, 2328 z 2520 pobytów) i w `vitalPeriodic` (inwazyjny, 430 pobytów). Kontekst pomiaru jest inny, a dane zawierają wartości 0 do usunięcia, więc nadciśnienie definiujemy rozpoznaniem, a pomiar traktujemy jako opcjonalną miarę.
-4. **Brak kalendarza:** wymiar Czas jest względny, więc analizy trendów w czasie nie są możliwe.
-5. Dane z MIMIC-IV i eICU opisują pacjentów OIOM i szpitalnych, więc wnioski nie przenoszą się na populację ogólną.
+Nie wiemy jeszcze, czy zrzuty badawcze MIMIC-IV i eICU-CRD zostaną uznane za „istniejący system informatyczny”, bo powstały z systemów szpitalnych, ale nie są ich bezpośrednią kopią. Liczebność jest niewielka: MIMIC demo ma 35 pacjentów z cukrzycą, a w eICU region Northeast ma tylko 14 pobytów z cukrzycą. Brak prawdziwych dat wyklucza analizę trendów, a dane pochodzą z OIOM i szpitali w USA, więc wnioski nie dotyczą populacji ogólnej.
